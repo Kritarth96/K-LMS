@@ -1,0 +1,119 @@
+/* client/src/ChromaGrid.css */
+.chroma-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    gap: 1.5rem;
+    position: relative;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem 0;
+  }
+  
+  /* Responsive: Force 1 column on mobile, 2 on tablet */
+  @media (max-width: 1024px) {
+    .chroma-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .chroma-grid { grid-template-columns: 1fr; }
+  }
+  
+  .chroma-card {
+    position: relative;
+    background: #ffffff;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  
+  .chroma-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* The Image Area */
+  .chroma-img-wrapper {
+    height: 180px;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    background: #f3f4f6;
+  }
+  
+  .chroma-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+  }
+  
+  .chroma-card:hover .chroma-img-wrapper img {
+    transform: scale(1.05);
+  }
+  
+  /* Card Content */
+  .chroma-info {
+    padding: 1.5rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .chroma-info .name {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 0.25rem;
+  }
+  
+  .chroma-info .handle {
+    font-size: 0.875rem;
+    color: #4f46e5;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  
+  .chroma-info .role {
+    font-size: 0.875rem;
+    color: #6b7280;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* The "Spotlight" Overlay Effect handled by JS */
+  .chroma-overlay {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    z-index: 10;
+    /* This uses the x/y from GSAP to create a glow effect */
+    background: radial-gradient(
+      var(--r) circle at var(--x) var(--y),
+      rgba(79, 70, 229, 0.15),
+      transparent 100%
+    );
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  
+  .chroma-grid:hover .chroma-overlay {
+    opacity: 1;
+  }
+  
+  /* Optional: Dark Mode Support if your app uses class="dark" */
+  :is(.dark .chroma-card) {
+    background: #1f2937;
+    border-color: #374151;
+  }
+  :is(.dark .chroma-info .name) { color: #f9fafb; }
+  :is(.dark .chroma-info .role) { color: #9ca3af; }
+  :is(.dark .chroma-info .handle) { color: #818cf8; }
