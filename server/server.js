@@ -16,10 +16,18 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // --- 2. MIDDLEWARE ---
-app.use(cors());
+// Enhanced CORS configuration for file uploads
+app.use(cors()); // Allow ALL origins and headers by default (simplest fix)
+app.use((req, res, next) => {
+    // Log request start
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Started`);
+    next();
+});
+
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
-app.use(express.json({ limit: '500mb' }));
-app.use(express.urlencoded({ limit: '500mb', extended: true }));
+// Increased limits for large file uploads (no practical limit)
+app.use(express.json({ limit: '10gb' }));
+app.use(express.urlencoded({ limit: '10gb', extended: true }));
 
 // --- 3. DATABASE INIT ---
 const db = new sqlite3.Database('school.db');
@@ -28,6 +36,10 @@ db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS courses (id INTEGER PRIMARY KEY, title TEXT, description TEXT, image_url TEXT, category TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, course_id INTEGER, title TEXT, content TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS lesson_files (id INTEGER PRIMARY KEY, lesson_id INTEGER, file_path TEXT, file_type TEXT, original_name TEXT)`);
+    
+    // --- NEW: PROGRESS TRACKING ---
+    db.run(`CREATE TABLE IF NOT EXISTS enrollments (id INTEGER PRIMARY KEY, user_id INTEGER, course_id INTEGER, enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, course_id))`);
+    db.run(`CREATE TABLE IF NOT EXISTS user_progress (id INTEGER PRIMARY KEY, user_id INTEGER, lesson_id INTEGER, completed_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, lesson_id))`);
 
     const hash = bcrypt.hashSync('admin123', 10);
     db.run(`INSERT OR IGNORE INTO users (name, email, password, role) VALUES ('Admin', 'admin@lms.com', ?, 'admin')`, [hash]);
@@ -42,14 +54,39 @@ const storage = multer.diskStorage({
     }
 });
 
+// Allowed file extensions
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.mp4', '.webm', '.mov', '.jpg', '.jpeg', '.png', '.gif'];
+
+const fileFilter = (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_EXTENSIONS.includes(ext)) {
+        cb(null, true);
+    } else {
+        cb(new Error(`File type not allowed. Supported types: ${ALLOWED_EXTENSIONS.join(', ')}`));
+    }
+};
+
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2GB
-}).array('files', 20); 
+    fileFilter: fileFilter,
+    limits: { 
+        fileSize: 50 * 1024 * 1024 * 1024  // 50GB per file - no practical limit
+    }
+}).array('files', 20);  
 
 const uploadHandler = (req, res, next) => {
     upload(req, res, function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ message: 'File too large. Maximum 50GB per file.' });
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return res.status(413).json({ message: 'Too many files. Maximum 20 files per upload.' });
+            }
+            return res.status(400).json({ message: err.message });
+        } else if (err) {
+            return res.status(400).json({ message: err.message });
+        }
         next();
     });
 };
@@ -73,6 +110,9 @@ const deleteFileFromDisk = (fileUrl) => {
 
 // --- 6. ROUTES ---
 
+// Health Check
+app.get('/', (req, res) => res.send('API Running'));
+
 // UPLOAD LESSON
 app.post('/api/lessons', uploadHandler, (req, res) => {
     const { course_id, title, content } = req.body;
@@ -88,13 +128,17 @@ app.post('/api/lessons', uploadHandler, (req, res) => {
 
             const promises = req.files.map(file => {
                 return new Promise((resolve, reject) => {
-                    const filePath = `http://localhost:5000/uploads/${file.filename}`;
-                    const ext = path.extname(file.filename).toLowerCase();
+                    // Use relative path so it works across different domains/devices
+                    const filePath = `/uploads/${file.filename}`;
+                     const ext = path.extname(file.filename).toLowerCase();
                     let type = 'doc';
-                    if (['.mp4','.webm','.mov'].includes(ext)) type = 'video';
+                    
+                    // Determine file type based on extension
+                    if (['.mp4', '.webm', '.mov'].includes(ext)) type = 'video';
                     else if (['.pdf'].includes(ext)) type = 'pdf';
-                    else if (['.jpg','.jpeg','.png'].includes(ext)) type = 'image';
-                    else if (['.ppt','.pptx'].includes(ext)) type = 'ppt';
+                    else if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) type = 'image';
+                    else if (['.ppt', '.pptx'].includes(ext)) type = 'ppt';
+                    else if (['.doc', '.docx'].includes(ext)) type = 'doc';
 
                     db.run("INSERT INTO lesson_files (lesson_id, file_path, file_type, original_name) VALUES (?,?,?,?)",
                         [lessonId, filePath, type, file.originalname], (err) => err ? reject(err) : resolve()
@@ -139,7 +183,11 @@ app.get('/api/course/:id', (req, res) => {
             db.all(`SELECT * FROM lesson_files WHERE lesson_id IN (${ids})`, [], (err, files) => {
                 const lessonsWithFiles = lessons.map(l => ({
                     ...l,
-                    files: files.filter(f => f.lesson_id === l.id)
+                    // Filter files and normalize paths (remove legacy localhost:5000)
+                    files: files.filter(f => f.lesson_id === l.id).map(f => ({
+                        ...f,
+                        file_path: f.file_path.replace('http://localhost:5000', '')
+                    }))
                 }));
                 res.json({ course, lessons: lessonsWithFiles });
             });
@@ -207,6 +255,126 @@ app.delete('/api/courses/:id', (req, res) => {
     });
 });
 
+// --- PROGRESS & DASHBOARD ROUTES ---
+
+// 1. Enroll User in Course
+app.post('/api/enroll', (req, res) => {
+    const { userId, courseId } = req.body;
+    db.run("INSERT OR IGNORE INTO enrollments (user_id, course_id) VALUES (?, ?)", [userId, courseId], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
+// 2. Check Enrollment Status
+app.get('/api/users/:userId/enrollment/:courseId', (req, res) => {
+    const { userId, courseId } = req.params;
+    db.get("SELECT * FROM enrollments WHERE user_id = ? AND course_id = ?", [userId, courseId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ enrolled: !!row });
+    });
+});
+
+// 3. Toggle Lesson Completion
+app.post('/api/progress', (req, res) => {
+    const { userId, lessonId, completed } = req.body;
+    if (completed) {
+        db.run("INSERT OR IGNORE INTO user_progress (user_id, lesson_id) VALUES (?, ?)", [userId, lessonId], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    } else {
+        db.run("DELETE FROM user_progress WHERE user_id = ? AND lesson_id = ?", [userId, lessonId], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    }
+});
+
+// 4. Get User's Completed Lessons for a Course
+app.get('/api/users/:userId/course/:courseId/progress', (req, res) => {
+    const { userId, courseId } = req.params;
+    // Get all lesson IDs for this course first
+    db.all("SELECT id FROM lessons WHERE course_id = ?", [courseId], (err, lessons) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (lessons.length === 0) return res.json({ completedLessonIds: [] });
+
+        const lessonIds = lessons.map(l => l.id);
+        const placeholders = lessonIds.map(() => '?').join(',');
+        
+        // Find which of these are completed by user
+        db.all(
+            `SELECT lesson_id FROM user_progress WHERE user_id = ? AND lesson_id IN (${placeholders})`, 
+            [userId, ...lessonIds], 
+            (err, rows) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ completedLessonIds: rows.map(r => r.lesson_id) });
+            }
+        );
+    });
+});
+
+// 5. DASHBOARD DATA (My Courses + Progress)
+app.get('/api/users/:userId/dashboard', (req, res) => {
+    const userId = req.params.userId;
+    
+    // 1. Get Enrolled Courses
+    const query = `
+        SELECT c.*, e.enrolled_at 
+        FROM courses c 
+        JOIN enrollments e ON c.id = e.course_id 
+        WHERE e.user_id = ?
+        ORDER BY e.enrolled_at DESC
+    `;
+    
+    db.all(query, [userId], (err, courses) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (courses.length === 0) return res.json([]);
+
+        // 2. Fetch progress statistics for each course
+        const coursesWithStats = [];
+        let completed = 0;
+
+        courses.forEach(course => {
+            db.all("SELECT id FROM lessons WHERE course_id = ?", [course.id], (err, lessons) => {
+                const totalLessons = lessons.length;
+                
+                if (totalLessons === 0) {
+                    coursesWithStats.push({ ...course, totalLessons: 0, completedLessons: 0, progress: 0 });
+                    if (coursesWithStats.length === courses.length) res.json(coursesWithStats);
+                    return;
+                }
+
+                const lessonIds = lessons.map(l => l.id);
+                const placeholders = lessonIds.map(() => '?').join(',');
+
+                db.get(
+                    `SELECT COUNT(*) as count FROM user_progress WHERE user_id = ? AND lesson_id IN (${placeholders})`,
+                    [userId, ...lessonIds],
+                    (err, row) => {
+                        const completedCount = row ? row.count : 0;
+                        const progress = Math.round((completedCount / totalLessons) * 100);
+                        
+                        coursesWithStats.push({ 
+                            ...course, 
+                            totalLessons, 
+                            completedLessons: completedCount, 
+                            progress 
+                        });
+
+                        if (coursesWithStats.length === courses.length) {
+                             // Sort by enrollment time (newest first) to maintain order from initial query
+                             coursesWithStats.sort((a,b) => new Date(b.enrolled_at) - new Date(a.enrolled_at));
+                             res.json(coursesWithStats);
+                        }
+                    }
+                );
+            });
+        });
+    });
+});
+
+
 // --- AUTH ---
 app.post('/api/register', (req, res) => {
     const { name, email, password } = req.body;
@@ -219,14 +387,56 @@ app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     db.get("SELECT * FROM users WHERE email = ?", [email], (err, user) => {
         if (!user || !bcrypt.compareSync(password, user.password)) return res.status(401).json({ error: "Invalid credentials" });
-        res.json({ user: { id: user.id, name: user.name, role: user.role } });
+        res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     });
 });
 
 app.get('/api/users', (req, res) => db.all("SELECT id, name, email, role FROM users", [], (err, rows) => res.json(rows)));
+
+// UPDATE USER ROLE
+app.put('/api/users/:id/role', (req, res) => {
+    const { role } = req.body;
+    db.run("UPDATE users SET role = ? WHERE id = ?", [role, req.params.id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
 app.delete('/api/users/:id', (req, res) => db.run("DELETE FROM users WHERE id = ?", [req.params.id], () => res.json({ success: true })));
 
-// --- START ---
-const server = app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// --- 7. DEBUG & START ---
+process.on('exit', (code) => {
+    console.log(`Process exited with code: ${code}`);
+});
+
+process.on('SIGINT', () => {
+    console.log('Received SIGINT. Press Control-D to exit.');
+});
+
+const server = app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Uploads directory: ${uploadDir}`);
+    console.log(`Database: school.db`);
+});
+
+server.on('close', () => {
+    console.log('Server closed');
+});
+
+server.on('error', (err) => {
+    console.error('Server error:', err);
+});
+
+// Keep process alive explicitly (though app.listen should do this)
+setInterval(() => {}, 1000 * 60 * 60);
+
 server.keepAliveTimeout = 1200000;
 server.headersTimeout = 1200000;
+server.timeout = 0; // Disable socket timeout for large files
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});

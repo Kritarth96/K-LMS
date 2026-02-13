@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import './ChromaGrid.css';
 
@@ -17,6 +17,7 @@ const ChromaGrid = ({
   const setX = useRef(null);
   const setY = useRef(null);
   const pos = useRef({ x: 0, y: 0 });
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
   // Default demo data
   const demo = [
@@ -43,13 +44,12 @@ const ChromaGrid = ({
         console.log("GSAP Init skipped");
     }
 
-    // 2. NEW: Staggered Entrance Animation
-    // This finds all cards and animates them up one by one
+    // 2. Staggered Entrance Animation
     const cards = el.querySelectorAll('.chroma-card');
     gsap.fromTo(cards, 
       { 
         opacity: 0, 
-        y: 50, // Start 50px lower
+        y: 50,
         scale: 0.95 
       }, 
       { 
@@ -57,9 +57,9 @@ const ChromaGrid = ({
         y: 0, 
         scale: 1, 
         duration: 0.8, 
-        stagger: 0.1, // Wait 0.1s between each card
+        stagger: 0.1,
         ease: 'power3.out',
-        clearProps: 'all' // Cleanup CSS after animation so hover works
+        clearProps: 'all'
       }
     );
 
@@ -98,6 +98,25 @@ const ChromaGrid = ({
     if (url) window.location.href = url;
   };
 
+  const handleKeyDown = (e, index) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleCardClick(data[index].url);
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const nextIndex = (index + 1) % data.length;
+      setFocusedIndex(nextIndex);
+      document.querySelectorAll('.chroma-card')[nextIndex]?.focus();
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prevIndex = (index - 1 + data.length) % data.length;
+      setFocusedIndex(prevIndex);
+      document.querySelectorAll('.chroma-card')[prevIndex]?.focus();
+    }
+  };
+
   const handleCardMove = e => {
     const card = e.currentTarget;
     const rect = card.getBoundingClientRect();
@@ -118,6 +137,8 @@ const ChromaGrid = ({
       }}
       onPointerMove={handleMove}
       onPointerLeave={handleLeave}
+      role="region"
+      aria-label="Course grid - Use arrow keys to navigate"
     >
       {data.map((c, i) => (
         <article
@@ -125,6 +146,13 @@ const ChromaGrid = ({
           className="chroma-card"
           onMouseMove={handleCardMove}
           onClick={() => handleCardClick(c.url)}
+          onKeyDown={(e) => handleKeyDown(e, i)}
+          onFocus={() => setFocusedIndex(i)}
+          onBlur={() => setFocusedIndex(-1)}
+          tabIndex={focusedIndex === i ? 0 : -1}
+          role="button"
+          aria-pressed={focusedIndex === i}
+          aria-label={`${c.title}: ${c.subtitle}`}
           style={{
             '--card-border': c.borderColor || 'transparent',
             '--card-gradient': c.gradient,
@@ -135,7 +163,7 @@ const ChromaGrid = ({
             {c.image ? (
                 <img src={c.image} alt={c.title} loading="lazy" />
             ) : (
-                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-4xl">🎓</div>
+                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-4xl" aria-hidden="true">🎓</div>
             )}
           </div>
           <footer className="chroma-info">

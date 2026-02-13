@@ -1,0 +1,50 @@
+.meteor-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.meteor {
+  position: absolute;
+  width: 2px;
+  height: 40px;
+  background: white;
+  opacity: 0.8;
+  border-radius: 9999px;
+  transform: rotate(215deg);
+  animation: meteor-animation 2s linear infinite;
+}
+
+.meteor::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 50px;
+  height: 1px;
+  background: linear-gradient(90deg, #ffffff, transparent);
+  box-shadow: 0 0 100px #ffffff, 0 0 50px rgba(255, 255, 255, 0.5);
+  border-radius: 9999px;
+  right: 1px;
+}
+
+@keyframes meteor-animation {
+  0% {
+    opacity: 1;
+    margin-top: -300px;
+    margin-right: -300px;
+  }
+  12% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+    margin-top: 300px;
+    margin-right: 300px;
+  }
+}

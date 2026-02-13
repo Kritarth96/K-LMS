@@ -1,19 +1,36 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Home from './Home';
 import CoursePlayer from './CoursePlayer';
 import Admin from './Admin';
-import Register from './Register'; // IMPORT
-import Login from './Login';       // IMPORT
+import Dashboard from './Dashboard';
+import Register from './Register';
+import Login from './Login';
+import ErrorBoundary from './ErrorBoundary';
+import ProtectedRoute from './ProtectedRoute';
+import { ToastProvider } from './ToastContext';
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/course/:id" element={<CoursePlayer />} />
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/register" element={<Register />} />  {/* NEW */}
-      <Route path="/login" element={<Login />} />        {/* NEW */}
-    </Routes>
+    <ErrorBoundary>
+      <ToastProvider>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/course/:id" element={<CoursePlayer />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <Admin />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 

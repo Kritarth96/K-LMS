@@ -11,7 +11,7 @@ html, body, #root {
 }
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white transition-colors duration-300;
 }
 
 /* Custom Scrollbar */
@@ -39,4 +39,18 @@ body {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
+}
+
+/* Added animations */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-rotate {
+  transition: transform 0.3s ease;
 }

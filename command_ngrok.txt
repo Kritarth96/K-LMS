@@ -1,0 +1,5 @@
+ngrok config add-authtoken 2tAD9pfiQH2VJxbA2YmyVLMD83g_4CHCNvmFK6jFoRBvYyAZs
+Run the server in vs code
+ngrok http 5173
+
+http://localhost:5173
