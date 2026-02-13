@@ -3,3 +3,5 @@ Run the server in vs code
 ngrok http 5173
 
 http://localhost:5173
+
+npm install --legacy-peer-deps

@@ -1,13 +1,34 @@
 const express = require('express');
+const path = require('path');
+// Load env vars explicitly from the server directory
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = 5000;
+
+console.log("--- Email Configuration Check ---");
+console.log("Email User:", process.env.EMAIL_USER ? process.env.EMAIL_USER : "MISSING");
+console.log("Email Pass:", process.env.EMAIL_PASS ? "LOADED (Hidden)" : "MISSING");
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.warn("WARNING: Email credentials are missing. Check .env file path and content.");
+}
+console.log("---------------------------------");
+
+// Email Transporter
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // --- 1. SETUP STORAGE ---
 const uploadDir = path.join(__dirname, 'public/uploads');
@@ -43,6 +64,14 @@ db.serialize(() => {
 
     const hash = bcrypt.hashSync('admin123', 10);
     db.run(`INSERT OR IGNORE INTO users (name, email, password, role) VALUES ('Admin', 'admin@lms.com', ?, 'admin')`, [hash]);
+
+    // --- MIGRATION: ADD VERIFICATION COLUMNS ---
+    db.run("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0", (err) => {
+        if (err && !err.message.includes("duplicate column name")) console.error(err);
+    });
+    db.run("ALTER TABLE users ADD COLUMN verification_token TEXT", (err) => {
+        if (err && !err.message.includes("duplicate column name")) console.error(err);
+    });
 });
 
 // --- 4. MULTER CONFIG ---
@@ -379,17 +408,62 @@ app.get('/api/users/:userId/dashboard', (req, res) => {
 app.post('/api/register', (req, res) => {
     const { name, email, password } = req.body;
     const hash = bcrypt.hashSync(password, 10);
-    db.run("INSERT INTO users (name, email, password) VALUES (?,?,?)", [name, email, hash], 
-        (err) => err ? res.status(400).json({error: "Email exists"}) : res.json({ success: true }));
+    const token = crypto.randomBytes(32).toString('hex');
+
+    db.run("INSERT INTO users (name, email, password, is_verified, verification_token) VALUES (?,?,?,0,?)", [name, email, hash, token], 
+        (err) => {
+            if (err) return res.status(400).json({error: "Email exists"});
+
+            const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+            
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'Verify your email - K-LMS',
+                html: `
+                    <h2>Welcome to K-LMS!</h2>
+                    <p>Please verify your email by clicking the link below:</p>
+                    <a href="${verificationUrl}">${verificationUrl}</a>
+                `
+            };
+
+            transporter.sendMail(mailOptions, (error, info) => {
+                if (error) {
+                    console.log(error);
+                    return res.json({ success: true, message: "Registered, but email failed to send. Contact admin." }); 
+                }
+                console.log('Email sent: ' + info.response);
+                res.json({ success: true, message: "Registration successful! Please check your email to verify account." });
+            });
+        }
+    );
+});
+
+app.get('/api/verify-email', (req, res) => {
+    const { token } = req.query;
+    db.get("SELECT * FROM users WHERE verification_token = ?", [token], (err, user) => {
+        if (!user) return res.status(400).json({ error: "Invalid or expired token" });
+
+        db.run("UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?", [user.id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, message: "Email verified successfully!" });
+        });
+    });
 });
 
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     db.get("SELECT * FROM users WHERE email = ?", [email], (err, user) => {
         if (!user || !bcrypt.compareSync(password, user.password)) return res.status(401).json({ error: "Invalid credentials" });
+        
+        if (user.role !== 'admin' && user.is_verified === 0) {
+            return res.status(403).json({ error: "Please verify your email address first." });
+        }
+
         res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     });
 });
+
 
 app.get('/api/users', (req, res) => db.all("SELECT id, name, email, role FROM users", [], (err, rows) => res.json(rows)));
 

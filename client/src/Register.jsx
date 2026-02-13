@@ -26,11 +26,12 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await axios.post(`${API_URL}/api/register`, form);
-      addToast('Registration successful! Redirecting to login...', 'success', 2000);
+      const res = await axios.post(`${API_URL}/api/register`, form);
+      // Success message from server: "Registration successful! Please check your email..."
+      addToast(res.data.message || 'Check your email to verify account.', 'success', 5000);
       setTimeout(() => {
         navigate('/login');
-      }, 500);
+      }, 3000);
     } catch (err) {
       const errorMessage = err.response?.data?.message || 'Error registering. Email might already be in use.';
       addToast(errorMessage, 'error');
