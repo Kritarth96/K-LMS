@@ -175,7 +175,7 @@ export default function CoursePlayer() {
         <div className="min-h-screen bg-white dark:bg-gray-900 font-sans transition-colors duration-300">
             {/* Navbar (Simplified) */}
             <nav className="p-6 flex justify-between items-center max-w-7xl mx-auto">
-                <Link to="/" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 no-underline">SoCTeamUp</Link>
+                <Link to="/" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 no-underline">K-LMS</Link>
                 <Link to="/" className="text-sm font-bold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">Back to Library</Link>
             </nav>
 

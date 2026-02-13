@@ -90,7 +90,7 @@ export default function Home() {
         <div className="container mx-auto px-6 h-16 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🚀</span>
-            <h1 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight">SoCTeamUp</h1>
+            <h1 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight">K-LMS</h1>
           </div>
           
           <div className="flex items-center gap-6">
@@ -343,7 +343,7 @@ export default function Home() {
 
       {/* Simple Footer */}
       <footer className="bg-white dark:bg-gray-900 border-t dark:border-gray-800 py-8 text-center text-gray-400 dark:text-gray-600 text-sm">
-        <p>&copy; {new Date().getFullYear()} SkillUp LMS. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} Kritarth Upadhyay. All rights reserved.</p>
       </footer>
     </div>
   );
