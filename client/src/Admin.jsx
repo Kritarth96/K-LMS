@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { useToast } from './ToastContext';
+import Navbar from './Navbar';
+import CourseBuilderWizard from './components/CourseBuilderWizard';
 
 const API_URL = '';
 
@@ -21,8 +23,9 @@ export default function Admin() {
   const [uploadProgress, setUploadProgress] = useState(0);
 
   // Forms
-  const [courseForm, setCourseForm] = useState({ title: '', description: '', image_url: '', category: 'General' });
+  const [courseForm, setCourseForm] = useState({ title: '', description: '', image_url: '', category: 'General', duration: '', level: 'Beginner' });
   const [lessonForm, setLessonForm] = useState({ title: '', content: '', files: null });
+  const [courseImageUploading, setCourseImageUploading] = useState(false); // State for course image upload
   
   // Selection State (Bulk Actions)
   const [selectedLessons, setSelectedLessons] = useState([]);
@@ -39,11 +42,6 @@ export default function Admin() {
   const { addToast } = useToast();
   const navigate = useNavigate();
   const currentUser = JSON.parse(localStorage.getItem('user')) || {};
-
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
 
   const openConfirm = (title, message, action, confirmText = 'Confirm Delete', confirmColor = 'bg-red-600') => {
     setConfirmData({ title, message, action, confirmText, confirmColor });
@@ -64,6 +62,7 @@ export default function Admin() {
 
   // --- INITIAL LOAD ---
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchCourses();
     fetchUsers();
   }, []);
@@ -124,9 +123,43 @@ export default function Admin() {
         title: course.title, 
         description: course.description, 
         image_url: course.image_url, 
-        category: course.category || 'General' 
+        category: course.category || 'General',
+        duration: course.duration || '',
+        level: course.level || 'Beginner'
     });
     fetchLessons(course.id);
+  };
+
+  const handleCourseImageUpload = async (file) => {
+    if (!file) return;
+    
+    // Validate
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+        addToast('Invalid file type. Please upload an image.', 'error');
+        return;
+    }
+    if (file.size > 5 * 1024 * 1024) { // 5MB
+        addToast('Image too large. Max 5MB.', 'error');
+        return;
+    }
+
+    setCourseImageUploading(true);
+    const formData = new FormData();
+    formData.append('files', file);
+
+    try {
+        const res = await axios.post(`${API_URL}/api/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        setCourseForm(prev => ({ ...prev, image_url: res.data.url }));
+        addToast('Image uploaded successfully', 'success');
+    } catch (err) {
+        addToast('Image upload failed', 'error');
+        console.error(err);
+    } finally {
+        setCourseImageUploading(false);
+    }
   };
 
   // --- SELECTION HANDLERS ---
@@ -446,211 +479,16 @@ export default function Admin() {
   // --- RENDER ---
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 font-sans transition-colors duration-300">
-      <nav className="bg-indigo-900 text-white p-4 sticky top-0 z-50 shadow-lg">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <h1 className="text-xl font-bold">ADMIN CONSOLE</h1>
-            <div className="flex items-center gap-4">
-                <Link to="/" className="text-xs bg-indigo-800 px-4 py-2 rounded hover:bg-indigo-700 transition font-bold">Home</Link>
-                <button onClick={handleLogout} className="text-xs bg-red-600/80 px-4 py-2 rounded hover:bg-red-600 transition font-bold">Logout</button>
-            </div>
-        </div>
-      </nav>
+      <Navbar />
 
       <div className="max-w-7xl mx-auto p-8">
         {editingCourse ? (
-            // --- EDIT MODE ---
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
-                <div className="bg-gray-100 dark:bg-gray-700 p-4 border-b dark:border-gray-600 flex justify-between items-center">
-                    <h2 className="font-bold text-lg text-gray-700 dark:text-white">Editing: {editingCourse.title}</h2>
-                    <button onClick={() => setEditingCourse(null)} className="text-sm font-bold text-red-600 dark:text-red-400 hover:underline">Close Editor</button>
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
-                    {/* LEFT: Course Meta */}
-                    <div className="space-y-6">
-                        <form onSubmit={handleUpdateCourse} className="flex flex-col gap-4">
-                            <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">Title</label>
-                            <input value={courseForm.title} onChange={e => setCourseForm({...courseForm, title: e.target.value})} className="border dark:border-gray-600 p-3 rounded bg-gray-50 dark:bg-gray-700 dark:text-white" />
-                            
-                            <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">Description</label>
-                            <textarea value={courseForm.description} onChange={e => setCourseForm({...courseForm, description: e.target.value})} className="border dark:border-gray-600 p-3 rounded bg-gray-50 dark:bg-gray-700 dark:text-white h-32" />
-                            
-                            <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">Category</label>
-                            <select value={courseForm.category} onChange={e => setCourseForm({...courseForm, category: e.target.value})} className="border dark:border-gray-600 p-3 rounded bg-gray-50 dark:bg-gray-700 dark:text-white">
-                                <option>General</option>
-                                <option>Development</option>
-                                <option>Design</option>
-                                <option>Business</option>
-                            </select>
-
-                            <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">Image URL</label>
-                            <input value={courseForm.image_url} onChange={e => setCourseForm({...courseForm, image_url: e.target.value})} className="border dark:border-gray-600 p-3 rounded bg-gray-50 dark:bg-gray-700 dark:text-white" />
-                            
-                            <button className="bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700">Save Changes</button>
-                        </form>
-                    </div>
-
-                    {/* RIGHT: Lesson Manager */}
-                    <div className="lg:col-span-2 space-y-8">
-                        {/* New Lesson Form */}
-                        <div className="border-2 border-dashed border-indigo-100 dark:border-indigo-900/50 p-6 rounded-xl bg-indigo-50/50 dark:bg-indigo-900/10">
-                             <h3 className="font-bold text-indigo-900 dark:text-indigo-300 mb-4">Add Content</h3>
-                             <input placeholder="Lesson Title" value={lessonForm.title} onChange={e => setLessonForm({...lessonForm, title: e.target.value})} className="border dark:border-gray-600 p-3 rounded w-full mb-4 dark:bg-gray-700 dark:text-white" />
-                             
-                             <textarea 
-                                placeholder="Type lesson content here... (HTML allowed)" 
-                                value={lessonForm.content} 
-                                onChange={e => setLessonForm({...lessonForm, content: e.target.value})} 
-                                className="w-full h-32 border dark:border-gray-600 p-4 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono text-sm mb-4 dark:bg-gray-700 dark:text-white"
-                             />
-
-                             {/* UPLOAD CONTROLS & PROGRESS BAR */}
-                             <div className="flex flex-col gap-3 mt-2">
-                                <div className="flex gap-4 items-center flex-wrap">
-                                    <input 
-                                        id="fileInput"
-                                        type="file" 
-                                        multiple 
-                                        accept=".pdf,.docx,.doc,.pptx,.ppt,.mp4,.webm,.mov,.jpg,.jpeg,.png,.gif"
-                                        onChange={e => setLessonForm({...lessonForm, files: e.target.files})} 
-                                        className="text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 dark:file:bg-indigo-900 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-200"
-                                    />
-                                    
-                                    <button 
-                                        onClick={handleAddLesson} 
-                                        disabled={isUploading} 
-                                        className={`ml-auto px-6 py-2 rounded font-bold text-white shadow-lg transition-all ${isUploading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 shadow-green-200 hover:scale-105'}`}
-                                    >
-                                        {isUploading ? `Uploading... ${uploadProgress}%` : 'Add Lesson'}
-                                    </button>
-                                </div>
-                                
-                                {/* VISUAL PROGRESS BAR */}
-                                {isUploading && (
-                                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
-                                        <div 
-                                            className="bg-green-600 h-2.5 rounded-full transition-all duration-300 ease-out" 
-                                            style={{ width: `${uploadProgress}%` }}
-                                        ></div>
-                                        <p className="text-xs text-center text-gray-500 mt-1">{uploadProgress}% Uploaded</p>
-                                    </div>
-                                )}
-                                
-                                <p className="text-xs text-gray-500 dark:text-gray-400 whitespace-normal">
-                                  ✅ Supported: PDF, DOCX, PPTX, MP4, WebM, MOV, Images (JPG, PNG, GIF)<br/>
-                                  📎 Hold Ctrl/Cmd to select multiple files • Max 5GB per file
-                                </p>
-                             </div>
-                        </div>
-
-                        {/* BULK ACTIONS TOOLBAR */}
-                        {(selectedLessons.length > 0 || selectedFiles.length > 0) && (
-                            <div className="bg-indigo-600 dark:bg-indigo-700 text-white p-3 rounded-lg flex justify-between items-center mb-4 sticky top-4 z-10 shadow-lg animate-scaleIn">
-                                <span className="font-bold text-sm">
-                                    {selectedLessons.length > 0 && `${selectedLessons.length} lessons selected`}
-                                    {selectedLessons.length > 0 && selectedFiles.length > 0 && ' • '}
-                                    {selectedFiles.length > 0 && `${selectedFiles.length} files selected`}
-                                </span>
-                                <div className="flex gap-2">
-                                    {selectedLessons.length > 0 && (
-                                        <button onClick={handleBulkDeleteLessons} className="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold">
-                                            Delete Lessons ({selectedLessons.length})
-                                        </button>
-                                    )}
-                                    {selectedFiles.length > 0 && (
-                                        <button onClick={handleBulkDeleteFiles} className="bg-orange-500 hover:bg-orange-600 px-3 py-1 rounded text-xs font-bold">
-                                            Delete Files ({selectedFiles.length})
-                                        </button>
-                                    )}
-                                    <button onClick={() => { setSelectedLessons([]); setSelectedFiles([]); }} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-xs font-bold">
-                                        Clear
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Existing Lessons List */}
-                        <div className="space-y-4">
-                            {lessons.map((lesson, idx) => (
-                                <div key={lesson.id} className={`bg-white dark:bg-gray-800 rounded border transition-colors ${selectedLessons.includes(lesson.id) ? 'border-indigo-500 shadow-md bg-indigo-50/10 dark:bg-indigo-900/20' : 'border-gray-100 dark:border-gray-700 shadow-sm'}`}>
-                                    {/* Lesson Header - Clickable for Dropdown */}
-                                    <div 
-                                        className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                        onClick={() => toggleLessonExpansion(lesson.id)}
-                                    >
-                                        <div className="flex items-center gap-3 flex-1">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={selectedLessons.includes(lesson.id)}
-                                                onChange={(e) => { e.stopPropagation(); toggleLessonSelection(lesson.id); }}
-                                                className="w-5 h-5 accent-indigo-600 cursor-pointer"
-                                            />
-                                            <span className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 text-xs flex items-center justify-center font-bold text-gray-600 dark:text-gray-200">{idx+1}</span>
-                                            <span className="font-medium text-gray-700 dark:text-white">{lesson.title}</span>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">
-                                                {lesson.files?.length || 0} files
-                                            </span>
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteLesson(lesson.id); }} 
-                                                className="text-red-400 hover:text-red-600 font-bold text-sm"
-                                            >
-                                                Delete
-                                            </button>
-                                            {/* Chevron Icon */}
-                                            <div className={`transition-transform duration-200 ${expandedLessons.includes(lesson.id) ? 'rotate-180' : ''}`}>
-                                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Dropdown Content (Files) */}
-                                    {expandedLessons.includes(lesson.id) && (
-                                        <div className="px-4 pb-4 animate-fadeIn">
-                                            <div className="pl-9">
-                                                {lesson.files && lesson.files.length > 0 ? (
-                                                    <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded text-sm border border-gray-100 dark:border-gray-600">
-                                                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Attached Files ({lesson.files.length})</p>
-                                                        <ul className="space-y-2">
-                                                            {lesson.files.map(file => (
-                                                                <li key={file.id} className={`flex justify-between items-center border dark:border-gray-700 px-3 py-2 rounded shadow-sm ${selectedFiles.includes(file.id) ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-800' : 'bg-white dark:bg-gray-800'}`}>
-                                                                    <div className="flex items-center gap-2 overflow-hidden flex-1 mr-4">
-                                                                        <input 
-                                                                            type="checkbox" 
-                                                                            checked={selectedFiles.includes(file.id)}
-                                                                            onChange={() => toggleFileSelection(file.id)}
-                                                                            className="w-4 h-4 accent-orange-500 cursor-pointer flex-shrink-0"
-                                                                        />
-                                                                        <span className="text-lg flex-shrink-0">{file.file_type === 'video' ? '🎬' : file.file_type === 'pdf' ? '📄' : '📎'}</span>
-                                                                        <a href={file.file_path} target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:underline truncate text-xs font-bold">
-                                                                            {file.original_name}
-                                                                        </a>
-                                                                    </div>
-                                                                    <button 
-                                                                        onClick={() => handleDeleteFile(file.id)} 
-                                                                        className="text-[10px] bg-red-50 dark:bg-red-900/50 text-red-600 dark:text-red-300 px-2 py-1 rounded font-bold hover:bg-red-100 dark:hover:bg-red-900"
-                                                                    >
-                                                                        Remove
-                                                                    </button>
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                ) : (
-                                                    <p className="text-xs text-gray-400 italic py-2">No files attached to this lesson.</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <CourseBuilderWizard 
+                course={editingCourse} 
+                onCancel={() => setEditingCourse(null)} 
+                onSave={() => { setEditingCourse(null); fetchCourses(); }}
+                refreshCourses={fetchCourses}
+            />
         ) : (
             // --- DASHBOARD MODE ---
             <div>
@@ -683,19 +521,64 @@ export default function Admin() {
                                 <input placeholder="Title" value={courseForm.title} onChange={e => setCourseForm({...courseForm, title: e.target.value})} className="w-full border dark:border-gray-600 p-3 rounded dark:bg-gray-700 dark:text-white" required />
                                 <textarea placeholder="Description" value={courseForm.description} onChange={e => setCourseForm({...courseForm, description: e.target.value})} className="w-full border dark:border-gray-600 p-3 rounded h-24 dark:bg-gray-700 dark:text-white" required />
                                 
-                                <select 
-                                    value={courseForm.category} 
-                                    onChange={e => setCourseForm({...courseForm, category: e.target.value})} 
-                                    className="w-full border dark:border-gray-600 p-3 rounded text-gray-700 dark:text-white dark:bg-gray-700"
-                                >
-                                    <option value="General">General</option>
-                                    <option value="Development">Development</option>
-                                    <option value="Design">Design</option>
-                                    <option value="Business">Business</option>
-                                </select>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <select 
+                                        value={courseForm.category} 
+                                        onChange={e => setCourseForm({...courseForm, category: e.target.value})} 
+                                        className="w-full border dark:border-gray-600 p-3 rounded text-gray-700 dark:text-white dark:bg-gray-700"
+                                    >
+                                        <option value="General">General</option>
+                                        <option value="Development">Development</option>
+                                        <option value="Design">Design</option>
+                                        <option value="Business">Business</option>
+                                    </select>
+                                    <select 
+                                        value={courseForm.level} 
+                                        onChange={e => setCourseForm({...courseForm, level: e.target.value})} 
+                                        className="w-full border dark:border-gray-600 p-3 rounded text-gray-700 dark:text-white dark:bg-gray-700"
+                                    >
+                                        <option value="Beginner">Beginner</option>
+                                        <option value="Intermediate">Intermediate</option>
+                                        <option value="Advanced">Advanced</option>
+                                    </select>
+                                </div>
+                                
+                                <input placeholder="Duration (e.g. 5h 30m)" value={courseForm.duration} onChange={e => setCourseForm({...courseForm, duration: e.target.value})} className="w-full border dark:border-gray-600 p-3 rounded dark:bg-gray-700 dark:text-white" />
 
-                                <input placeholder="Image URL" value={courseForm.image_url} onChange={e => setCourseForm({...courseForm, image_url: e.target.value})} className="w-full border dark:border-gray-600 p-3 rounded dark:bg-gray-700 dark:text-white" />
-                                <button className="w-full bg-indigo-600 text-white py-3 rounded font-bold">Create</button>
+                                <div 
+                                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${courseImageUploading ? 'bg-gray-100 dark:bg-gray-700 animate-pulse' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-gray-300 dark:border-gray-600'}`}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        handleCourseImageUpload(e.dataTransfer.files[0]);
+                                    }}
+                                    onClick={() => document.getElementById('createCourseImageInput').click()}
+                                >
+                                    <input 
+                                        id="createCourseImageInput" 
+                                        type="file" 
+                                        className="hidden" 
+                                        accept="image/*"
+                                        onChange={(e) => handleCourseImageUpload(e.target.files[0])}
+                                    />
+                                    {courseImageUploading ? (
+                                        <p className="text-sm font-bold text-indigo-600">Uploading...</p>
+                                    ) : courseForm.image_url ? (
+                                        <div className="relative group">
+                                            <img src={courseForm.image_url} alt="Cover" className="h-32 mx-auto rounded shadow-sm object-cover" />
+                                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded text-white font-bold text-xs">
+                                                Change
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-gray-400">
+                                            <span className="text-2xl block mb-1">🖼️</span>
+                                            <span className="text-xs font-bold">Drag & Drop Cover Image</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700 shadow-md">Create Course</button>
                             </form>
                         </div>
                         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -726,18 +609,34 @@ export default function Admin() {
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
                                 <tr>
-                                    <th className="p-4 dark:text-gray-200">Name</th>
-                                    <th className="p-4 dark:text-gray-200">Email</th>
+                                    <th className="p-4 pl-6 dark:text-gray-200">User</th>
+                                    <th className="p-4 dark:text-gray-200">Detailed Info</th>
                                     <th className="p-4 dark:text-gray-200">Role</th>
                                     <th className="p-4 text-right dark:text-gray-200">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredUsers.map(u => (
-                                    <tr key={u.id} className="border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                        <td className="p-4 font-bold dark:text-white">{u.name}</td>
-                                        <td className="p-4 text-sm dark:text-gray-300">{u.email}</td>
-                                        <td className="p-4"><span className="bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-xs uppercase font-bold dark:text-white">{u.role}</span></td>
+                                    <tr key={u.id} className="border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                        <td className="p-4 pl-6">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                                                    {u.name.charAt(0).toUpperCase()}
+                                                </div>
+                                                <span className="font-bold text-gray-800 dark:text-white">{u.name}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 text-sm text-gray-500 dark:text-gray-300">
+                                            <div className="flex flex-col">
+                                                <span>{u.email}</span>
+                                                <span className="text-xs text-gray-400">ID: #{u.id}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs uppercase font-bold ${u.role === 'admin' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300' : 'bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-200'}`}>
+                                                {u.role}
+                                            </span>
+                                        </td>
                                         <td className="p-4 text-right">
                                             <div className="flex items-center justify-end gap-3">
                                                 {/* ACTIONS FOR MAIN ADMIN (admin@lms.com) */}

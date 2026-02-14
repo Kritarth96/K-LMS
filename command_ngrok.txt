@@ -5,3 +5,6 @@ ngrok http 5173
 http://localhost:5173
 
 npm install --legacy-peer-deps
+
+EMAIL_USER=klmsverify@gmail.com
+EMAIL_PASS=hjwo unwl viar gifa

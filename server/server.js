@@ -54,7 +54,7 @@ app.use(express.urlencoded({ limit: '10gb', extended: true }));
 const db = new sqlite3.Database('school.db');
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT DEFAULT 'student')`);
-    db.run(`CREATE TABLE IF NOT EXISTS courses (id INTEGER PRIMARY KEY, title TEXT, description TEXT, image_url TEXT, category TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS courses (id INTEGER PRIMARY KEY, title TEXT, description TEXT, image_url TEXT, category TEXT, duration TEXT, level TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, course_id INTEGER, title TEXT, content TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS lesson_files (id INTEGER PRIMARY KEY, lesson_id INTEGER, file_path TEXT, file_type TEXT, original_name TEXT)`);
     
@@ -72,7 +72,21 @@ db.serialize(() => {
     db.run("ALTER TABLE users ADD COLUMN verification_token TEXT", (err) => {
         if (err && !err.message.includes("duplicate column name")) console.error(err);
     });
+
+    // --- MIGRATION: ADD COURSE METADATA ---
+    db.run("ALTER TABLE courses ADD COLUMN duration TEXT", (err) => {
+        if (err && !err.message.includes("duplicate column name")) console.error(err);
+    });
+    db.run("ALTER TABLE courses ADD COLUMN level TEXT", (err) => {
+        if (err && !err.message.includes("duplicate column name")) console.error(err);
+    });
+
+    // --- MIGRATION: ADD LESSON ORDER ---
+    db.run("ALTER TABLE lessons ADD COLUMN order_index INTEGER DEFAULT 0", (err) => {
+        if (err && !err.message.includes("duplicate column name")) console.error(err);
+    });
 });
+
 
 // --- 4. MULTER CONFIG ---
 const storage = multer.diskStorage({
@@ -142,6 +156,17 @@ const deleteFileFromDisk = (fileUrl) => {
 // Health Check
 app.get('/', (req, res) => res.send('API Running'));
 
+// GENERIC UPLOAD (For Course Images, etc.)
+app.post('/api/upload', uploadHandler, (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: "No file uploaded" });
+    }
+    // Return the URL of the first file
+    const file = req.files[0];
+    const fileUrl = `/uploads/${file.filename}`;
+    res.json({ url: fileUrl });
+});
+
 // UPLOAD LESSON
 app.post('/api/lessons', uploadHandler, (req, res) => {
     const { course_id, title, content } = req.body;
@@ -182,21 +207,61 @@ app.post('/api/lessons', uploadHandler, (req, res) => {
     );
 });
 
+// ADD FILES TO EXISTING LESSON
+app.post('/api/lessons/:id/files', uploadHandler, (req, res) => {
+    const lessonId = req.params.id;
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+    }
+
+    const promises = req.files.map(file => {
+        return new Promise((resolve, reject) => {
+            const filePath = `/uploads/${file.filename}`;
+            const ext = path.extname(file.filename).toLowerCase();
+            let type = 'doc';
+            
+            if (['.mp4', '.webm', '.mov'].includes(ext)) type = 'video';
+            else if (['.pdf'].includes(ext)) type = 'pdf';
+            else if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) type = 'image';
+            else if (['.ppt', '.pptx'].includes(ext)) type = 'ppt';
+            else if (['.doc', '.docx'].includes(ext)) type = 'doc';
+
+            db.run("INSERT INTO lesson_files (lesson_id, file_path, file_type, original_name) VALUES (?,?,?,?)",
+                [lessonId, filePath, type, file.originalname], 
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+    });
+
+    Promise.all(promises)
+        .then(() => res.json({ success: true, message: "Files added" }))
+        .catch(err => res.status(500).json({ error: err.message }));
+});
+
 // GET COURSES
 app.get('/api/courses', (req, res) => db.all("SELECT * FROM courses", [], (err, rows) => res.json(rows)));
 
 // CREATE COURSE
 app.post('/api/courses', (req, res) => {
-    const { title, description, image_url, category } = req.body;
-    db.run("INSERT INTO courses (title, description, image_url, category) VALUES (?,?,?,?)", 
-        [title, description, image_url, category], () => res.json({ success: true }));
+    const { title, description, image_url, category, duration, level } = req.body;
+    db.run("INSERT INTO courses (title, description, image_url, category, duration, level) VALUES (?,?,?,?,?,?)", 
+        [title, description, image_url, category, duration, level], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, id: this.lastID });
+        });
 });
 
 // UPDATE COURSE
 app.put('/api/courses/:id', (req, res) => {
-    const { title, description, image_url, category } = req.body;
-    db.run("UPDATE courses SET title = ?, description = ?, image_url = ?, category = ? WHERE id = ?", 
-        [title, description, image_url, category, req.params.id], () => res.json({ success: true }));
+    const { title, description, image_url, category, duration, level } = req.body;
+    db.run("UPDATE courses SET title = ?, description = ?, image_url = ?, category = ?, duration = ?, level = ? WHERE id = ?", 
+        [title, description, image_url, category, duration, level, req.params.id], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
 });
 
 // GET FULL COURSE DATA
@@ -205,7 +270,7 @@ app.get('/api/course/:id', (req, res) => {
     db.get("SELECT * FROM courses WHERE id = ?", [id], (err, course) => {
         if (!course) return res.status(404).json({ error: "Not found" });
         
-        db.all("SELECT * FROM lessons WHERE course_id = ?", [id], (err, lessons) => {
+        db.all("SELECT * FROM lessons WHERE course_id = ? ORDER BY order_index ASC, id ASC", [id], (err, lessons) => {
             if (!lessons.length) return res.json({ course, lessons: [] });
             
             const ids = lessons.map(l => l.id).join(',');
@@ -252,7 +317,31 @@ app.delete('/api/lessons/:id', (req, res) => {
         });
     });
 });
+// REORDER LESSONS
+app.post('/api/courses/:id/reorder-lessons', (req, res) => {
+    const { order } = req.body; // Array of { id: lessonId, order_index: newIndex }
+    
+    if (!order || !Array.isArray(order)) {
+        return res.status(400).json({ error: "Invalid order data" });
+    }
 
+    const stmt = db.prepare("UPDATE lessons SET order_index = ? WHERE id = ?");
+    
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        order.forEach((item, index) => {
+            stmt.run(index, item.id);
+        });
+        db.run("COMMIT", (err) => {
+            if (err) {
+                console.error("Reorder error:", err);
+                return res.status(500).json({ error: "Failed to reorder" });
+            }
+            res.json({ success: true });
+        });
+        stmt.finalize();
+    });
+});
 // 3. DELETE COURSE (AND ALL LESSONS AND FILES)
 app.delete('/api/courses/:id', (req, res) => {
     const id = req.params.id;
