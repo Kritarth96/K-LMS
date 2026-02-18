@@ -8,6 +8,7 @@ const API_URL = ''; // Relative path because of proxy
 
 export default function Dashboard() {
   const [courses, setCourses] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalCourses: 0,
@@ -25,8 +26,12 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/users/${user.id}/dashboard`);
-      const data = res.data;
+      const [dashboardRes, coursesRes] = await Promise.all([
+        axios.get(`${API_URL}/api/users/${user.id}/dashboard`),
+        axios.get(`${API_URL}/api/courses`)
+      ]);
+
+      const data = dashboardRes.data;
       setCourses(data);
       
       // Calculate Stats
@@ -36,6 +41,12 @@ export default function Dashboard() {
       const averageProgress = totalCourses > 0 ? Math.round(totalProgress / totalCourses) : 0;
       
       setStats({ totalCourses, lessonsCompleted, averageProgress });
+
+      // Recommendations Logic: Show up to 3 courses not yet enrolled in
+      const enrolledIds = new Set(data.map(c => c.id));
+      const notEnrolled = coursesRes.data.filter(c => !enrolledIds.has(c.id));
+      setRecommendations(notEnrolled.slice(0, 3));
+
     } catch (err) {
       console.error("Error fetching dashboard:", err);
     } finally {
@@ -191,22 +202,27 @@ export default function Dashboard() {
                 {/* Quick Actions / New Courses */}
                 <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
                      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Recommended for You</h3>
-                     <div className="space-y-4">
-                        <div className="flex gap-3 items-center group cursor-pointer">
-                            <div className="w-12 h-12 rounded-lg bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center text-xl">🐍</div>
-                            <div>
-                                <h4 className="font-bold text-gray-800 dark:text-gray-200 text-sm group-hover:text-indigo-600 transition-colors">Python for Data Science</h4>
-                                <span className="text-xs text-gray-500">Beginner • 12 Lessons</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-3 items-center group cursor-pointer">
-                             <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center text-xl">⚛️</div>
-                             <div>
-                                <h4 className="font-bold text-gray-800 dark:text-gray-200 text-sm group-hover:text-indigo-600 transition-colors">Advanced React Patterns</h4>
-                                <span className="text-xs text-gray-500">Advanced • 8 Lessons</span>
-                             </div>
-                        </div>
-                     </div>
+                     {recommendations.length > 0 ? (
+                         <div className="space-y-4">
+                            {recommendations.map(rec => (
+                                <Link to={`/course/${rec.id}`} key={rec.id} className="flex gap-3 items-center group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 p-2 rounded-lg transition-colors -mx-2">
+                                    <div className="w-12 h-12 rounded-lg bg-indigo-100 dark:bg-indigo-900/20 flex items-center justify-center text-xl overflow-hidden shrink-0">
+                                        {rec.image_url ? (
+                                            <img src={rec.image_url} alt={rec.title} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span>💡</span>
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <h4 className="font-bold text-gray-800 dark:text-gray-200 text-sm group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-1">{rec.title}</h4>
+                                        <span className="text-xs text-gray-500 font-medium">{rec.level || 'General'} • {rec.category || 'All'}</span>
+                                    </div>
+                                </Link>
+                            ))}
+                         </div>
+                     ) : (
+                        <p className="text-gray-500 text-sm text-center py-4">You're enrolled in all available courses!</p>
+                     )}
                      <Link to="/" className="mt-4 block text-center text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline">View All Recommendations</Link>
                 </div>
             </div>

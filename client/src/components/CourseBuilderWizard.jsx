@@ -26,6 +26,7 @@ export default function CourseBuilderWizard({ course, onSave, onCancel, refreshC
   const [lessons, setLessons] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [loadingLessons, setLoadingLessons] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
   const { addToast } = useToast();
 
   // Load lessons when mounting or when course changes
@@ -133,7 +134,15 @@ export default function CourseBuilderWizard({ course, onSave, onCancel, refreshC
                Course Wizard
                <span className="text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full">{isSaving ? 'Saving...' : 'Draft'}</span>
            </h2>
-           <button onClick={onCancel} className="text-gray-500 hover:text-red-500 font-bold transition">Exit Wizard</button>
+           <div className="flex items-center gap-4">
+              <button 
+                  onClick={() => setShowPreview(!showPreview)} 
+                  className="text-gray-500 hover:text-indigo-600 font-bold transition flex items-center gap-2 text-sm bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border dark:border-gray-700 shadow-sm"
+              >
+                  {showPreview ? '👁️ Hide Preview' : '👁️ Show Preview'}
+              </button>
+              <button onClick={onCancel} className="text-gray-500 hover:text-red-500 font-bold transition">Exit Wizard</button>
+           </div>
        </div>
 
        {/* MAIN CONTENT AREA (SPLIT VIEW) */}
@@ -142,9 +151,15 @@ export default function CourseBuilderWizard({ course, onSave, onCancel, refreshC
                 <Stepper currentStep={step} />
             </div>
             
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-0 overflow-hidden">
+            <div className={cn(
+                "flex-1 grid gap-0 overflow-hidden transition-all duration-300",
+                showPreview ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
+            )}>
                 {/* LEFT PANEL: Builder / Form */}
-                <div className="p-8 overflow-y-auto border-r dark:border-gray-700 h-full max-h-[calc(100vh-250px)]">
+                <div className={cn(
+                    "p-8 overflow-y-auto border-r dark:border-gray-700 h-full max-h-[calc(100vh-250px)]",
+                    !showPreview && "max-w-4xl mx-auto border-r-0"
+                )}>
                     <AnimatePresence mode="wait">
                         {step === 1 && (
                             <Step1Details 
@@ -174,20 +189,22 @@ export default function CourseBuilderWizard({ course, onSave, onCancel, refreshC
                 </div>
 
                 {/* RIGHT PANEL: Live Preview */}
-                <div className="bg-gray-100 dark:bg-gray-900/50 p-8 h-full overflow-y-auto max-h-[calc(100vh-250px)] hidden lg:block">
-                     <div className="sticky top-0">
-                        <div className="bg-gray-800 rounded-t-xl p-2 flex items-center justify-center gap-2">
-                             <div className="w-2 h-2 rounded-full bg-red-400"></div>
-                             <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
-                             <div className="w-2 h-2 rounded-full bg-green-400"></div>
-                             <span className="text-xs text-gray-400 font-mono ml-2">Live Preview</span>
+                {showPreview && (
+                    <div className="bg-gray-100 dark:bg-gray-900/50 p-8 h-full overflow-y-auto max-h-[calc(100vh-250px)] hidden lg:block">
+                        <div className="sticky top-0">
+                            <div className="bg-gray-800 rounded-t-xl p-2 flex items-center justify-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                                <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
+                                <div className="w-2 h-2 rounded-full bg-green-400"></div>
+                                <span className="text-xs text-gray-400 font-mono ml-2">Live Preview</span>
+                            </div>
+                            <div className="bg-white dark:bg-gray-950 border-x border-b border-gray-200 dark:border-gray-800 rounded-b-xl shadow-lg min-h-[500px] overflow-hidden relative">
+                                {/* MOCK PREVIEW COMPONENT */}
+                                <LivePreview formData={formData} lessons={lessons} step={step} />
+                            </div>
                         </div>
-                        <div className="bg-white dark:bg-gray-950 border-x border-b border-gray-200 dark:border-gray-800 rounded-b-xl shadow-lg min-h-[500px] overflow-hidden relative">
-                             {/* MOCK PREVIEW COMPONENT */}
-                             <LivePreview formData={formData} lessons={lessons} step={step} />
-                        </div>
-                     </div>
-                </div>
+                    </div>
+                )}
             </div>
        </div>
 

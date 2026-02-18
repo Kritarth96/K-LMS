@@ -565,7 +565,24 @@ app.put('/api/users/:id/role', (req, res) => {
     });
 });
 
-app.delete('/api/users/:id', (req, res) => db.run("DELETE FROM users WHERE id = ?", [req.params.id], () => res.json({ success: true })));
+app.delete('/api/users/:id', (req, res) => {
+    const userId = req.params.id;
+    // 1. Delete enrollments
+    db.run("DELETE FROM enrollments WHERE user_id = ?", [userId], (err) => {
+        if (err) console.error("Error deleting enrollments:", err);
+        
+        // 2. Delete progress
+        db.run("DELETE FROM user_progress WHERE user_id = ?", [userId], (err) => {
+            if (err) console.error("Error deleting progress:", err);
+            
+            // 3. Delete user
+            db.run("DELETE FROM users WHERE id = ?", [userId], (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true });
+            });
+        });
+    });
+});
 
 // --- 7. DEBUG & START ---
 process.on('exit', (code) => {

@@ -411,7 +411,7 @@ export default function Admin() {
   const handleDeleteUser = (userId) => {
     openConfirm(
         "Delete User?",
-        "Permanently delete this user? They will lose access to all courses.",
+        "Permanently delete this user? Their enrolled courses and progress will be wiped.",
         async () => {
             try {
                 await axios.delete(`${API_URL}/api/users/${userId}`);
